@@ -1,7 +1,7 @@
 # Bài tập blockchain
 1412247
 
-![image](https://user-images.githubusercontent.com/16438204/166900482-38a84ace-11d7-412d-8cee-e3d4b32c4555.png)
+![ezgif-2-cad3e46b15](https://user-images.githubusercontent.com/16438204/166900779-10dc2d35-49fb-4eb0-aba9-4766f285afa0.gif)
 
 
 # Tính năng
