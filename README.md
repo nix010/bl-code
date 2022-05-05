@@ -1,4 +1,4 @@
-# Bài tập block chain
+# Bài tập blockchain
 1412247
 
 
@@ -10,4 +10,9 @@
 - Sử dụng thuật toán Proof Of Work
 
 
+# Hạn chế
 
+- Chưa có UI
+- Do dùng NodeJs thư viện `crypto` nhưng không tương thích với việc chạy browser nên em phải fallback dùng CLI cho giao diện
+
+ 
