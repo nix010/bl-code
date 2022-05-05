@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 
-import blockchain from "../blockchain";
+import blockchain from "../../blockchain";
 
 export const TransactionContext = React.createContext();
 
