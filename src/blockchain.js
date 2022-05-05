@@ -2,6 +2,7 @@
 const _ = require("lodash");
 const SHA256 = require("crypto-js/sha256");
 const crypto = require("crypto");
+const prompt = require("prompt-sync")({ sigint: true });
 
 
 const signData = (privateKey, data) => {
@@ -81,7 +82,6 @@ class CryptoBlockchain {
   }
 
   initWallet(){
-    console.log({crypto})
     const ec = crypto.generateKeyPairSync('ec', {
       namedCurve: 'sect239k1',
       modulusLength: 2048,
@@ -105,31 +105,55 @@ class CryptoBlockchain {
   }
 
   initFund(address, amount) {
-    const newBlockHash = this.addNewBlock(new BlockTransaction(
+    const newBlockId = this.addNewBlock(new BlockTransaction(
       [], [new TxtOutput(address, amount)]
     ))
-    console.log(this.blockchain)
     this.unspendTxtOut[address] = [
       ...this.unspentTransactions(address),
-      new UnspendOutBlock(newBlockHash, 0, amount)
+      new UnspendOutBlock(newBlockId, 0, amount)
     ];
   }
 
+  unspentAmount(address) {
+    const unspendOutTxt = this.unspentTransactions(address);
+    const totalUnspendAmount = _.sum(_.map(unspendOutTxt, 'amount'))
+    return totalUnspendAmount
+  }
+
+  transactionHistoryReadable(address) {
+    const transactions = this.transactionHistory(address);
+    if (!transactions.length){
+      console.log('No transaction data');
+      return
+    }
+    transactions.map(tran => {
+      const movingIn = tran.txOuts[0].address === address;
+      const move = movingIn ? 'Received fund': 'Transfer fund';
+      console.log(`${move} amount: ${tran.txOuts[0].amount} - (at ${tran.timestamp})` )
+    })
+  }
+
   transactionHistory(address) {
-    return _(this.blockchain).filter(block => _.some(block.txOuts, ous => ous.address === address)).sortBy('timestamp').value()
+    const outIds = _(this.blockchain)
+      .filter(block => _.some(block.txOuts, ous => ous.address === address))
+      .map(block => block.id).value();
+    return _(this.blockchain).filter(block =>
+      _.some(block.txIns, ins => outIds.includes(ins.txOutputId)) ||
+      _.some(block.txOuts, ous => ous.address === address)
+    ).sortBy('timestamp').value()
   }
 
   transfer(fromAddress, toAddress, amount, privateKey) {
     if (fromAddress === toAddress){
+      console.log('Duplicated addresses')
       return
     }
-    const unspendOutTxt = this.unspentTransactions(fromAddress);
-    const totalUnspendAmount = _.sum(_.map(unspendOutTxt, 'amount'))
-
+    const totalUnspendAmount = this.unspentAmount(fromAddress);
     if (totalUnspendAmount < amount){
-      console.log('Not enough')
+      console.log('Not enough fund')
       return false
     }
+    const unspendOutTxt = this.unspentTransactions(fromAddress);
     const inputTxts = _.map(unspendOutTxt, (unspendOutBlock) => {
       const signature = signData(privateKey, unspendOutBlock.outTxtId);
       return new TxtInput(unspendOutBlock.outTxtId, unspendOutBlock.outTxtIndex, signature)
@@ -140,19 +164,17 @@ class CryptoBlockchain {
     if (remainAmount > 0.) {
       outputTxts.push(new TxtOutput(fromAddress, remainAmount));
     }
-    const newBlockHash = this.addNewBlock(
+    const newBlockId = this.addNewBlock(
       new BlockTransaction(
         inputTxts, outputTxts
       )
     );
-    console.log(newBlockHash);
-
     this.unspendTxtOut[toAddress] = [
       ...this.unspentTransactions(toAddress),
-      new UnspendOutBlock(newBlockHash, 0, amount)
+      new UnspendOutBlock(newBlockId, 0, amount)
     ];
     if (remainAmount > 0.) {
-      this.unspendTxtOut[fromAddress] = [new UnspendOutBlock(newBlockHash, 1, remainAmount)]
+      this.unspendTxtOut[fromAddress] = [new UnspendOutBlock(newBlockId, 1, remainAmount)]
     }
     console.log('Transfer success')
   }
@@ -164,9 +186,8 @@ class CryptoBlockchain {
   addNewBlock(newBlock) {
     newBlock.precedingHash = this.obtainLatestBlock().hash;
     newBlock.proofOfWork(this.difficulty);
-    console.log({newBlock})
     this.blockchain.push(newBlock);
-    return newBlock.hash
+    return newBlock.id
   }
 
   checkChainValidity() {
@@ -183,23 +204,75 @@ class CryptoBlockchain {
   }
 }
 
-let blockchain = new CryptoBlockchain();
+function complete(commands) {
+  return function (str) {
+    var i;
+    var ret = [];
+    for (i=0; i< commands.length; i++) {
+      if (commands[i].indexOf(str) == 0)
+        ret.push(commands[i]);
+    }
+    return ret;
+  };
+};
 
-const {publicKey, privateKey} = blockchain.initWallet();
+_store = {
+  userKey: {},
+};
+
+console.clear();
+console.log('Start to new blockchain.')
+
+const blockchain = new CryptoBlockchain();
+const wallet = blockchain.initWallet();
+_store.userKey = wallet;
+
+
+while (1){
+  console.log(`Your wallet is: ${_store.userKey.publicKey}`);
+  console.log(`Your amount is: ${blockchain.unspentAmount(_store.userKey.publicKey)}`);
+  console.log('----------------------------');
+  console.log('1.Create a new wallet');
+  console.log('2.Add fund to your wallet');
+  console.log('3.Transfer amount to another wallet');
+  console.log('4.Check your transfer history');
+  console.log('5.Check another wallet transfer history');
+  const select = prompt('custom autocomplete: ', {
+    autocomplete: complete(['1', '2', '3', '4'])
+  });
+  const selection = {
+    '1': () => {
+      const newWallet = blockchain.initWallet();
+      console.log(`New wallet is ${newWallet.publicKey}`);
+    },
+    '2': () => {
+      blockchain.initFund(_store.userKey.publicKey, 20);
+      console.log(`Fund added in your wallet`);
+    },
+    '3': () => {
+      const toAddress = prompt('To address: ');
+      const amount = prompt('Amount: ');
+      console.log(`Transferring...`);
+      blockchain.transfer(_store.userKey.publicKey, toAddress, amount, _store.userKey.privateKey);
+    },
+    '4': () => {
+      blockchain.transactionHistoryReadable(_store.userKey.publicKey);
+    },
+    '5': () => {
+      const address = prompt('Address: ');
+      blockchain.transactionHistoryReadable(address);
+    }
+  }[select];
+  if (!!select)
+    selection();
+  else if (select === '6'){
+    prompt('Exiting.');
+    return
+  }
+  prompt('Continue.');
+  console.clear();
+}
 
 
 
-blockchain.initFund(publicKey, 20);
 
-blockchain.transfer(
-  publicKey,
-  '0xdefg',
-  2,
-  privateKey
-);
-
-const prompt = require("prompt-sync")({ sigint: true });
-const age = prompt("How old are you? ");
-console.log(`You are ${age} years old.`);
-
-// export default blockchain
